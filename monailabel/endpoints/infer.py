@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, Response
 from requests_toolbelt import MultipartEncoder
 
 from monailabel.config import RBAC_USER, settings
-from monailabel.datastore.utils.convert import binary_to_image
+from monailabel.datastore.utils.convert import binary_to_image, nifti_to_dicom_seg
 from monailabel.endpoints.user.auth import RBAC, User
 from monailabel.interfaces.app import MONAILabelApp
 from monailabel.interfaces.utils.app import app_instance
@@ -72,6 +72,7 @@ class ResultType(str, Enum):
     image = "image"
     json = "json"
     all = "all"
+    dicom_seg = "dicom_seg"
 
 
 def send_response(datastore, result, output, background_tasks):
@@ -92,6 +93,13 @@ def send_response(datastore, result, output, background_tasks):
 
     if output == "image":
         return FileResponse(res_img, media_type=m_type, filename=os.path.basename(res_img))
+    
+    if output == "dicom_seg":
+        res_dicom_seg = result.get('dicom_seg')
+        if res_dicom_seg == None:
+            raise HTTPException(status_code=500, detail="Error processing inference")
+        else:
+            return FileResponse(res_dicom_seg, media_type="application/dicom", filename=os.path.basename(res_dicom_seg))
 
     res_fields = dict()
     res_fields["params"] = (None, json.dumps(res_json), "application/json")
@@ -162,6 +170,19 @@ def run_inference(
     result = instance.infer(request)
     if result is None:
         raise HTTPException(status_code=500, detail="Failed to execute infer")
+    
+    ## Dicom Seg Integration
+    dicom_seg_file = None
+    if output == 'dicom_seg' and image:
+        image_path = instance.datastore()._to_id(instance.datastore().get_image_uri(image))[0]
+        if image_path == '':
+            raise HTTPException(status_code=500, detail="Image not found")
+        elif params == '{}':
+            raise HTTPException(status_code=404, detail="Parameters for DICOM Seg inference cannot be empty!")
+        res_img = result.get("file") if result.get("file") else result.get("label")
+        dicom_seg_file = nifti_to_dicom_seg(image_path, res_img, p.get('label_info'), use_itk=True)
+        result['dicom_seg'] = dicom_seg_file
+
     return send_response(instance.datastore(), result, output, background_tasks)
 
 
