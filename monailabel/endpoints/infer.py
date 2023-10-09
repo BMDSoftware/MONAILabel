@@ -62,6 +62,7 @@ router = APIRouter(
                 },
                 "application/json": {"schema": {"type": "string", "example": "{}"}},
                 "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
+                "application/dicom": {"schema": {"type": "string", "format": "binary"}},
             },
         },
     },
@@ -177,7 +178,7 @@ def run_inference(
         image_uri = instance.datastore().get_image_uri(image)
         if not image_uri:
             raise HTTPException(status_code=500, detail="Image not found")
-        elif params == "{}":
+        elif p.get("label_info") is None:
             raise HTTPException(status_code=404, detail="Parameters for DICOM Seg inference cannot be empty!")
         # Transform image uri to id (similar to _to_id in local datastore)
         suffixes = [".nii", ".nii.gz", ".nrrd"]
